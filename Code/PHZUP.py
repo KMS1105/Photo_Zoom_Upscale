@@ -25,11 +25,11 @@ class ImageViewer:
         self.load_model()
 
     def load_model(self):
-        model_path = 'ESPCN_x2.pb'
+        model_path = 'ESPCN_x3.pb'
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"업스케일 모델 파일을 찾을 수 없습니다: {model_path}")
         self.sr.readModel(model_path)
-        self.sr.setModel('espcn', 2)
+        self.sr.setModel('espcn', 3)
 
         """ # CUDA 활성화 (OpenCV가 CUDA를 지원하는 경우)
         self.sr.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)  # CUDA 백엔드 사용
@@ -48,14 +48,48 @@ class ImageViewer:
             self.scale = min(3.0, self.scale * 1.2)
             self.center_x, self.center_y = x, y
             self.process_image()
+
         elif event == cv2.EVENT_RBUTTONDOWN:
             self.scale = max(1.0, self.scale / 1.2)
             self.center_x, self.center_y = x, y
+            self.process_image()
+
+        elif event == cv2.EVENT_MOUSEWHEEL:
+            if flags > 0:  # 휠 위로 -> 줌 인
+                self.scale = min(3.0, self.scale * 1.2)
+            else:  # 휠 아래로 -> 줌 아웃
+                self.scale = max(1.0, self.scale / 1.2)
+
+            self.center_x, self.center_y = x, y
+            self.process_image()
+
 
     def process_image(self):
         self.is_upscaling = True
+
+        # 현재 줌된 영역 가져오기
         zoomed_image = self.__zoom(self.data, (self.center_x, self.center_y))
-        self.upscaled_image = self.sr.upsample(zoomed_image)
+
+        # 업스케일링 수행
+        upscaled = self.sr.upsample(zoomed_image)
+
+        # 업스케일링된 이미지를 원본 크기로 리사이징
+        resized_upscaled = cv2.resize(upscaled, (self.WIDTH, self.HEIGHT))
+
+        # 현재 이미지 크기 비율 계산 (업스케일링 후의 상대적 위치 유지)
+        scale_factor_x = self.WIDTH / upscaled.shape[1]
+        scale_factor_y = self.HEIGHT / upscaled.shape[0]
+
+        # 상대적 위치를 유지한 새로운 중심 좌표 계산
+        new_center_x = int(self.center_x * scale_factor_x)
+        new_center_y = int(self.center_y * scale_factor_y)
+
+        # 상대적인 중심 좌표를 기준으로 줌 적용
+        self.upscaled_image = self.__zoom(resized_upscaled, (new_center_x, new_center_y))
+
+        # 중심 좌표 업데이트
+        self.center_x, self.center_y = new_center_x, new_center_y
+
         self.is_upscaling = False
         self.capture(self.upscaled_image)
 
@@ -75,5 +109,5 @@ class ImageViewer:
         print(f'이미지 저장 완료: {filename}')
 
 if __name__ == '__main__':
-    viewer = ImageViewer('sc01.png', mirror=True)
+    viewer = ImageViewer('Photo.jpg', mirror=False)
     viewer.show()
